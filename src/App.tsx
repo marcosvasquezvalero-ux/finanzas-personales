@@ -12,6 +12,10 @@ import {
   signInWithEmailPassword,
   signOut as signOutUser,
 } from './services/authService'
+import {
+  exportFinancialReport,
+  type ExportReportOptions,
+} from './services/reportExportService'
 import { testSupabaseConnection } from './services/supabaseConnectionService'
 import type { AppSection } from './types/finance'
 
@@ -35,6 +39,16 @@ function App() {
 
   const showVisualMessage = (message: string) => {
     setNotice(message)
+    closeModal()
+  }
+
+  const handleExportReport = async (options: ExportReportOptions) => {
+    await exportFinancialReport(options)
+    setNotice(
+      options.format === 'pdf'
+        ? 'PDF generado correctamente.'
+        : 'Excel generado correctamente.',
+    )
     closeModal()
   }
 
@@ -189,11 +203,7 @@ function App() {
           <ExportReportForm
             module={modalState.module}
             onCancel={closeModal}
-            onGenerate={() =>
-              showVisualMessage(
-                'La generacion de PDF se implementara al conectar Supabase.',
-              )
-            }
+            onGenerate={handleExportReport}
           />
         ) : null}
       </Modal>

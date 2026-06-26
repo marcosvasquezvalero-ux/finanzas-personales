@@ -847,6 +847,17 @@ button {
   grid-template-columns: 0.8fr 1.2fr;
 }
 
+.export-form__error {
+  background: color-mix(in srgb, var(--expense), transparent 88%);
+  border: 1px solid color-mix(in srgb, var(--expense), transparent 58%);
+  border-radius: 14px;
+  color: var(--expense);
+  font-size: 0.82rem;
+  font-weight: 850;
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .progress-card {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--savings), transparent 84%), transparent),
