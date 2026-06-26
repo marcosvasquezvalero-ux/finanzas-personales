@@ -39,6 +39,14 @@ import {
   saveSavingsGoal,
   saveSavingsMovement,
 } from '../services/savingsFinanceService'
+import {
+  fetchTripFinance,
+  finishTrip,
+  saveTripInitialFund,
+  saveTripMovement,
+  transferTripBalanceToSavings,
+  type TripFinance,
+} from '../services/tripFinanceService'
 import type { AppSection, BalanceSummary } from '../types/finance'
 import type { SavingsCurrency, SavingsMovementType } from '../models/savings'
 
@@ -49,7 +57,6 @@ type HomePageProps = {
   activeSection: AppSection
   onExport: (module: EditableSection | 'general') => void
   onNewMovement: (section: EditableSection) => void
-  onTransferTripBalance: () => void
 }
 
 type QuickMovement = {
@@ -240,7 +247,6 @@ export function HomePage({
   activeSection,
   onExport,
   onNewMovement,
-  onTransferTripBalance,
 }: HomePageProps) {
   const [people, setPeople] = useState(initialPeople)
   const [personIds, setPersonIds] = useState<Record<PersonId, string | null>>({
@@ -261,12 +267,15 @@ export function HomePage({
   })
   const [tripState, setTripState] = useState({
     day: '2026-07-18',
-    expenses: 850,
+    expenses: 0,
     form: { amount: '', description: '' },
-    income: 2800,
-    initialFund: 1500,
+    income: 0,
+    initialFund: 0,
+    initialFundInput: '',
+    isFinished: false,
     name: 'Viaje',
   })
+  const [tripStatus, setTripStatus] = useState(emptyStatus)
   const [savingsState, setSavingsState] = useState<SavingsState>({
     currency: 'PEN',
     formAmount: '',
@@ -320,6 +329,18 @@ export function HomePage({
     }))
   }, [])
 
+  const applyTripFinance = useCallback((finance: TripFinance) => {
+    setTripState((current) => ({
+      ...current,
+      expenses: finance.expenses,
+      income: finance.income,
+      initialFund: finance.initialFund,
+      initialFundInput: '',
+      isFinished: finance.isFinished,
+      name: finance.name,
+    }))
+  }, [])
+
   const loadPersonalFinance = useCallback(async (personId: PersonId) => {
     setPersonStatuses((current) => ({
       ...current,
@@ -352,6 +373,29 @@ export function HomePage({
     void loadPersonalFinance('marcos')
     void loadPersonalFinance('nayeli')
   }, [loadPersonalFinance])
+
+  const loadTripFinance = useCallback(async () => {
+    setTripStatus((current) => ({ ...current, error: null, isLoading: true }))
+
+    try {
+      const finance = await fetchTripFinance()
+      applyTripFinance(finance)
+    } catch (error) {
+      setTripStatus((current) => ({
+        ...current,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudieron cargar los datos reales de Viaje.',
+      }))
+    } finally {
+      setTripStatus((current) => ({ ...current, isLoading: false }))
+    }
+  }, [applyTripFinance])
+
+  useEffect(() => {
+    void loadTripFinance()
+  }, [loadTripFinance])
 
   const loadSavingsFinance = useCallback(async () => {
     setSavingsStatus((current) => ({ ...current, error: null, isLoading: true }))
@@ -603,15 +647,116 @@ export function HomePage({
     }
   }
 
-  const registerTripExpense = () => {
+  const registerTripMovement = async (type: 'income' | 'expense') => {
     const amount = parseAmount(tripState.form.amount)
-    if (!amount) return
 
-    setTripState((current) => ({
-      ...current,
-      expenses: current.expenses + amount,
-      form: { amount: '', description: '' },
-    }))
+    if (!amount) {
+      setTripStatus((current) => ({
+        ...current,
+        error: 'Ingresa un monto de viaje mayor a cero.',
+      }))
+      return
+    }
+
+    if (!tripState.form.description.trim()) {
+      setTripStatus((current) => ({
+        ...current,
+        error: 'Escribe una descripcion para el movimiento del viaje.',
+      }))
+      return
+    }
+
+    setTripStatus((current) => ({ ...current, error: null, isSaving: true }))
+
+    try {
+      await saveTripMovement({
+        amount,
+        description: tripState.form.description.trim(),
+        type,
+      })
+      setTripState((current) => ({
+        ...current,
+        form: { amount: '', description: '' },
+      }))
+      await loadTripFinance()
+    } catch (error) {
+      setTripStatus((current) => ({
+        ...current,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo guardar el movimiento del viaje.',
+      }))
+    } finally {
+      setTripStatus((current) => ({ ...current, isSaving: false }))
+    }
+  }
+
+  const saveTripInitial = async () => {
+    const amount = parseAmount(tripState.initialFundInput)
+
+    if (!amount) {
+      setTripStatus((current) => ({
+        ...current,
+        error: 'Ingresa un fondo inicial mayor a cero.',
+      }))
+      return
+    }
+
+    setTripStatus((current) => ({ ...current, error: null, isSaving: true }))
+
+    try {
+      await saveTripInitialFund(amount)
+      await loadTripFinance()
+    } catch (error) {
+      setTripStatus((current) => ({
+        ...current,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo guardar el fondo inicial del viaje.',
+      }))
+    } finally {
+      setTripStatus((current) => ({ ...current, isSaving: false }))
+    }
+  }
+
+  const finalizeTrip = async () => {
+    setTripStatus((current) => ({ ...current, error: null, isSaving: true }))
+
+    try {
+      await finishTrip()
+      await loadTripFinance()
+    } catch (error) {
+      setTripStatus((current) => ({
+        ...current,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo finalizar el viaje.',
+      }))
+    } finally {
+      setTripStatus((current) => ({ ...current, isSaving: false }))
+    }
+  }
+
+  const transferTripBalance = async () => {
+    setTripStatus((current) => ({ ...current, error: null, isSaving: true }))
+
+    try {
+      await transferTripBalanceToSavings(tripRemaining)
+      await Promise.all([loadTripFinance(), loadSavingsFinance()])
+    } catch (error) {
+      setTripStatus((current) => ({
+        ...current,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo transferir el saldo del viaje a ahorros.',
+      }))
+    } finally {
+      setTripStatus((current) => ({ ...current, isSaving: false }))
+    }
   }
 
   const saveSavings = async (type: SavingsMovementType) => {
@@ -846,11 +991,16 @@ export function HomePage({
               form: { ...current.form, [field]: value },
             }))
           }
-          onFinalize={onTransferTripBalance}
+          onChangeInitialFund={(value) =>
+            setTripState((current) => ({ ...current, initialFundInput: value }))
+          }
+          onFinalize={finalizeTrip}
           onExport={() => onExport('trip')}
-          onRegisterExpense={registerTripExpense}
-          onTransferTripBalance={onTransferTripBalance}
+          onRegisterMovement={registerTripMovement}
+          onSaveInitial={saveTripInitial}
+          onTransferTripBalance={transferTripBalance}
           remaining={tripRemaining}
+          statusMessage={tripStatus.error}
           trip={tripState}
         />
       ) : null}
@@ -1131,17 +1281,22 @@ function InitialBalanceCard({
 type TripScreenProps = {
   onAdvanced: () => void
   onChangeForm: (field: keyof QuickMovement, value: string) => void
+  onChangeInitialFund: (value: string) => void
   onFinalize: () => void
   onExport: () => void
-  onRegisterExpense: () => void
+  onRegisterMovement: (type: 'income' | 'expense') => void
+  onSaveInitial: () => void
   onTransferTripBalance: () => void
   remaining: number
+  statusMessage: string | null
   trip: {
     day: string
     expenses: number
     form: QuickMovement
     income: number
     initialFund: number
+    initialFundInput: string
+    isFinished: boolean
     name: string
   }
 }
@@ -1149,11 +1304,14 @@ type TripScreenProps = {
 function TripScreen({
   onAdvanced,
   onChangeForm,
+  onChangeInitialFund,
   onFinalize,
   onExport,
-  onRegisterExpense,
+  onRegisterMovement,
+  onSaveInitial,
   onTransferTripBalance,
   remaining,
+  statusMessage,
   trip,
 }: TripScreenProps) {
   const metrics: BalanceSummary[] = [
@@ -1210,12 +1368,40 @@ function TripScreen({
         </div>
         <section className="quick-card" id="quick-entry-trip">
           <div className="quick-card__header">
+            <span className="quick-card__icon savings">
+              <AppIcon name="landmark" size={18} />
+            </span>
+            <div>
+              <h3>Fondo inicial</h3>
+              <p>Actualiza el fondo independiente del viaje.</p>
+            </div>
+          </div>
+          <div className="quick-fields">
+            <label>
+              <span>Monto</span>
+              <input
+                inputMode="decimal"
+                onChange={(event) => onChangeInitialFund(event.target.value)}
+                placeholder={money(trip.initialFund)}
+                type="text"
+                value={trip.initialFundInput}
+              />
+            </label>
+          </div>
+          <div className="quick-actions single">
+            <button className="primary-button" type="button" onClick={onSaveInitial}>
+              Guardar fondo
+            </button>
+          </div>
+        </section>
+        <section className="quick-card" id="quick-entry-trip-movement">
+          <div className="quick-card__header">
             <span className="quick-card__icon expense">
               <AppIcon name="receipt" size={18} />
             </span>
             <div>
-              <h3>Gasto rapido</h3>
-              <p>Solo afecta al fondo interno del viaje.</p>
+              <h3>Registro rapido</h3>
+              <p>Guarda ingresos o gastos del viaje.</p>
             </div>
           </div>
           <div className="quick-fields">
@@ -1239,15 +1425,31 @@ function TripScreen({
               />
             </label>
           </div>
-          <div className="quick-actions single">
-            <button className="danger-button" type="button" onClick={onRegisterExpense}>
+          <div className="quick-actions">
+            <button
+              className="danger-button"
+              type="button"
+              onClick={() => onRegisterMovement('expense')}
+            >
               Registrar gasto
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => onRegisterMovement('income')}
+            >
+              Registrar ingreso
             </button>
           </div>
         </section>
+        {statusMessage ? <p className="quick-card__message">{statusMessage}</p> : null}
         <div className="detail-actions compact-actions trip-actions">
           <BigActionButton
-            action={{ label: 'Finalizar viaje', icon: 'target', tone: 'info' }}
+            action={{
+              label: trip.isFinished ? 'Viaje finalizado' : 'Finalizar viaje',
+              icon: 'target',
+              tone: 'info',
+            }}
             onClick={onFinalize}
           />
           <BigActionButton

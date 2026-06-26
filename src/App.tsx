@@ -171,9 +171,6 @@ function App() {
         onNewMovement={(section) =>
           setModalState({ type: 'movement-form', section })
         }
-        onTransferTripBalance={() =>
-          setNotice('Accion visual lista. Aun no guarda datos.')
-        }
       />
 
       <Notice message={notice} onClose={() => setNotice(null)} />
